@@ -31,8 +31,11 @@ public struct MacWindow {
             mover.move(action)
 
         case .status:
-            write(Accessibility.isTrusted ? "accessibility: granted" : "accessibility: not granted")
-            write(LaunchAgent.isInstalled ? "login agent: installed" : "login agent: not installed")
+            Status.lines(
+                trusted: Accessibility.isTrusted,
+                installed: LaunchAgent.isInstalled,
+                agent: AgentRecord.current()
+            ).forEach(write)
 
         case .watch:
             watch()
@@ -40,7 +43,9 @@ public struct MacWindow {
         case .install:
             try LaunchAgent.install(executablePath: executablePath, runner: runner)
             write("installed \(LaunchAgent.plistURL.path)")
-            Accessibility.requestTrust()
+            // Not asking for consent here: this process answers for the terminal that ran it, so
+            // the grant would land on the terminal. The agent, just bootstrapped, asks for itself.
+            write("run 'macwindow status' to see whether the agent may move windows")
 
         case .uninstall:
             try LaunchAgent.uninstall(runner: runner)
@@ -52,7 +57,9 @@ public struct MacWindow {
     }
 
     private func watch() -> Never {
-        warnUnlessTrusted()
+        requestTrust()
+        AgentRecord(pid: getpid(), executablePath: executablePath, trusted: Accessibility.isTrusted)
+            .save()
 
         let registry = HotkeyRegistry { [mover] action in mover.move(action) }
         for refused in registry.start() {
@@ -73,5 +80,13 @@ public struct MacWindow {
         warn(
             "no accessibility permission; windows will not move. "
                 + "Add \(executablePath) under System Settings → Privacy & Security → Accessibility.")
+    }
+
+    /// Consent is recorded against whoever is responsible for this process — the agent itself when
+    /// launchd started it. So the agent has to do its own asking; nobody can do it on its behalf.
+    private func requestTrust() {
+        guard !Accessibility.isTrusted else { return }
+        Accessibility.requestTrust()
+        warnUnlessTrusted()
     }
 }

@@ -24,7 +24,12 @@ public enum LaunchAgent {
             .appendingPathComponent("Library/LaunchAgents/\(label).plist")
     }
 
-    public static func plist(executablePath: String) -> String {
+    public static var logURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/\(label).log")
+    }
+
+    public static func plist(executablePath: String, logPath: String) -> String {
         """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -41,6 +46,10 @@ public enum LaunchAgent {
             <true/>
             <key>KeepAlive</key>
             <true/>
+            <key>StandardOutPath</key>
+            <string>\(logPath)</string>
+            <key>StandardErrorPath</key>
+            <string>\(logPath)</string>
         </dict>
         </plist>
 
@@ -51,7 +60,8 @@ public enum LaunchAgent {
         let url = plistURL
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(plist(executablePath: executablePath).utf8).write(to: url, options: .atomic)
+        let contents = plist(executablePath: executablePath, logPath: logURL.path)
+        try Data(contents.utf8).write(to: url, options: .atomic)
 
         // An earlier copy may still be loaded; booting it out first makes install idempotent.
         _ = try? runner.run(launchctl, ["bootout", serviceTarget])
@@ -61,6 +71,7 @@ public enum LaunchAgent {
     public static func uninstall(runner: CommandRunner) throws {
         _ = try? runner.run(launchctl, ["bootout", serviceTarget])
         try? FileManager.default.removeItem(at: plistURL)
+        AgentRecord.clear()
     }
 
     public static var isInstalled: Bool {
