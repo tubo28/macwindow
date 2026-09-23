@@ -1,87 +1,67 @@
 # macwindow
 
-Rectangle で実際に使っている 左半分 / 右半分 / 最大化 の 3 つだけを、macOS 標準のアクセシビリティ API で置き換える小さな CLI。
-常駐するのは LaunchAgent 1 つで、設定ファイルもメニューバーのアイコンも持たない。
+A small CLI that snaps windows to the left half, the right half, or full screen
+using the macOS built-in accessibility API.
+One LaunchAgent, no config file, no menu bar icon.
 
-| ショートカット | 動き |
+| Shortcut | Action |
 | --- | --- |
-| `⌃⌥←` | 左半分 |
-| `⌃⌥→` | 右半分 |
-| `⌃⌥↑` | 最大化 |
+| `⌃⌥←` | Left half |
+| `⌃⌥→` | Right half |
+| `⌃⌥↑` | Maximize |
 
-## 連打でディスプレイを歩く
+## Walking across displays
 
-同じショートカットをもう一度押すと、ウィンドウは隣のディスプレイの反対側の半分へ移る。
-ディスプレイが 2 枚（A の右に B）で `⌃⌥→` を連打すると、半分のスロットを右へ 1 つずつ歩く。
+Press the same shortcut again and the window moves to the opposite half of the next display.
+With two displays (B to the right of A), repeating `⌃⌥→` walks one half-slot to the right each time.
 
 ```
-A右半 → B左半 → B右半 → A左半 → A右半 → …     （⌃⌥← はこの逆）
-1 枚: A右半 → A右半 → A右半 → …
+A right → B left → B right → A left → A right → …     (⌃⌥← walks the other way)
+One display: A right → A right → A right → …
 ```
 
-連打と見なすのは、前回と同じアクションで、同じウィンドウが、前回置いた場所にまだある場合だけ。
-手でウィンドウを動かしたあとは仕切り直しになる。
+A press counts as a repeat only when it's the same action, on the same window,
+and the window is still where it was last put.
+Moving a window by hand starts over.
 
-`⌃⌥↑` の連打はディスプレイを順に巡る。ここだけは Rectangle には無い動き。
+Repeating `⌃⌥↑` cycles through the displays.
 
-## 使い方
+## Usage
 
 ```
 swift build -c release
 install -D -t ~/.local/bin .build/release/macwindow
 
-macwindow install     # ログイン時からショートカットを待ち受ける常駐エージェントを登録
-macwindow status      # 権限とエージェントの状態
-macwindow uninstall   # エージェントを解除
+macwindow install     # register a login agent that listens for the shortcuts
+macwindow status      # show permission and agent state
+macwindow uninstall   # remove the agent
 
-macwindow left        # ショートカットを介さず手で動かす（動作確認用）
+macwindow left        # move a window directly, without a shortcut
 macwindow right
 macwindow maximize
 ```
 
-`macwindow left` などの単発の実行は、前回どこに置いたかを覚えていない
-（プロセスがそのつど終わるため）。常に「1 回目の押下」として振る舞うので、
-ディスプレイを歩くのは `macwindow watch`（＝常駐エージェント）の中だけになる。
+A one-off run like `macwindow left` doesn't remember where it last put a window,
+since the process exits each time. It always behaves as a first press,
+so walking across displays only happens inside `macwindow watch` (the resident agent).
 
-## アクセシビリティ権限
+## Accessibility permission
 
-他のアプリのウィンドウを動かすには **アクセシビリティ権限が要る**。
-許可は「そのプロセスの責任者」に紐づく。ターミナルから `macwindow left` を叩いたときの責任者はターミナルで、
-ターミナルに付いている許可がそのまま借りられる。LaunchAgent から起動した常駐プロセスは自分自身が責任者なので、
-`~/.local/bin/macwindow` そのものを登録しないと、ホットキーは効いてもウィンドウは動かない。
+Moving another app's windows **requires accessibility permission**.
+Permission is tied to the process that's responsible for the run. When you type `macwindow left`
+in a terminal, the terminal is responsible, and its permission is borrowed. A process started by the
+LaunchAgent is responsible for itself, so `~/.local/bin/macwindow` has to be granted permission
+directly — otherwise the hotkeys fire but no window moves.
 
-常駐プロセスは起動時に自分で許可ダイアログを出す。それが出ないまま（＝以前に断っている）なら、
-システム設定 → プライバシーとセキュリティ → アクセシビリティ にバイナリを追加してから入れ直す。
+The resident process asks for permission on startup. If no dialog appears (you declined before),
+add the binary under System Settings → Privacy & Security → Accessibility and restart it.
 
 ```
 launchctl kickstart -k gui/$(id -u)/com.github.tubo28.macwindow
 ```
 
-`macwindow status` はターミナル側と常駐側の許可を別々に表示する。
-常駐プロセスの警告は `~/Library/Logs/com.github.tubo28.macwindow.log` に残る。
+`macwindow status` reports the terminal's permission and the agent's permission separately.
+Warnings from the resident process go to `~/Library/Logs/com.github.tubo28.macwindow.log`.
 
-TCC はバイナリを パス と コード署名 で見分ける。`swift build` するたび ad-hoc 署名が変わるので、
-開発中は再ビルドのたびに登録し直す必要がある。これは避けられない。
-
-## Rectangle との併用
-
-同じキーを両方が握ると、どちらが動かしたのか分からなくなる。`macwindow install` したら
-Rectangle 側の 3 つのショートカットを外すか、Rectangle ごとアンインストールする。
-
-## 開発
-
-```
-swift build
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
-```
-
-テストは swift-testing を使う。Command Line Tools の toolchain には `Testing` モジュールが入っていないため、
-`swift test` だけは Xcode の toolchain を指す必要がある。
-
-配置の判断はすべて純粋関数（`WindowPlacement` / `WindowFrame` / `Display`）にあり、
-可変なのは「前回どこに何を置いたか」を持つ `WindowMover` だけ。
-アクセシビリティ API と Carbon のホットキーはプロトコルの向こう側の薄い殻で、テストの対象外。
-
-ウィンドウ操作の細部（最小サイズを持つアプリ、ディスプレイをまたぐ移動、`AXEnhancedUserInterface` を
-立てている Electron / Office 系アプリ、応答しないアプリ）は
-[rxhanson/Rectangle](https://github.com/rxhanson/Rectangle) の実装に倣っている。
+TCC identifies a binary by path and code signature. Every `swift build` produces a new ad-hoc
+signature, so the binary has to be granted permission again after each rebuild.
